@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://unpkg.com/jsnes/dist/jsnes.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      width: 512px;
+      height: 480px;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="nes" width="256" height="240"></canvas>
+  <script>
+    const canvas = document.getElementById("nes");
+    const ctx = canvas.getContext("2d");
+    const imgData = ctx.createImageData(256, 240);
+    const buf = new ArrayBuffer(imgData.data.length);
+    const buf8 = new Uint8ClampedArray(buf);
+    const buf32 = new Uint32Array(buf);
+
+    const nes = new jsnes.NES({
+      onFrame: function(frameBuffer) {
+        for (let i = 0; i < frameBuffer.length; ++i) {
+          buf32[i] = 0xff000000 | frameBuffer[i];
+        }
+        imgData.data.set(buf8);
+        ctx.putImageData(imgData, 0, 0);
+      }
+    });
+
+    // Keyboard controls
+    const keys = {
+      ArrowUp: jsnes.Controller.BUTTON_UP,
+      ArrowDown: jsnes.Controller.BUTTON_DOWN,
+      ArrowLeft: jsnes.Controller.BUTTON_LEFT,
+      ArrowRight: jsnes.Controller.BUTTON_RIGHT,
+      KeyZ: jsnes.Controller.BUTTON_B,
+      KeyX: jsnes.Controller.BUTTON_A,
+      Enter: jsnes.Controller.BUTTON_START,
+      ShiftRight: jsnes.Controller.BUTTON_SELECT
+    };
+
+    window.addEventListener("keydown", e => {
+      if (keys[e.code] !== undefined) nes.buttonDown(1, keys[e.code]);
+    });
+
+    window.addEventListener("keyup", e => {
+      if (keys[e.code] !== undefined) nes.buttonUp(1, keys[e.code]);
+    });
+
+    // Gamepad button mapping (Standard Web Gamepad Layout)
+    const gamepadMap = {
+      12: jsnes.Controller.BUTTON_UP,     // D-Pad Up
+      13: jsnes.Controller.BUTTON_DOWN,   // D-Pad Down
+      14: jsnes.Controller.BUTTON_LEFT,   // D-Pad Left
+      15: jsnes.Controller.BUTTON_RIGHT,  // D-Pad Right
+      0:  jsnes.Controller.BUTTON_A,      // A / Cross
+      1:  jsnes.Controller.BUTTON_B,      // B / Circle
+      9:  jsnes.Controller.BUTTON_START,  // Start
+      8:  jsnes.Controller.BUTTON_SELECT  // Select
+    };
+
+    const gamepadStates = {};
+
+    function updateGamepad() {
+      const gamepads = navigator.getGamepads();
+      const gamepad = gamepads[0]; // Player 1
+      if (!gamepad) return;
+
+      // Digital Buttons
+      Object.entries(gamepadMap).forEach(([btnIndex, nesBtn]) => {
+        const isPressed = gamepad.buttons[btnIndex]?.pressed;
+        if (isPressed && !gamepadStates[btnIndex]) {
+          nes.buttonDown(1, nesBtn);
+          gamepadStates[btnIndex] = true;
+        } else if (!isPressed && gamepadStates[btnIndex]) {
+          nes.buttonUp(1, nesBtn);
+          gamepadStates[btnIndex] = false;
+        }
+      });
+
+      // Left Analog Stick with deadzone threshold
+      const deadzone = 0.5;
+      const xAxis = gamepad.axes[0];
+      const yAxis = gamepad.axes[1];
+
+      handleAxis(xAxis < -deadzone, jsnes.Controller.BUTTON_LEFT, 'left');
+      handleAxis(xAxis > deadzone, jsnes.Controller.BUTTON_RIGHT, 'right');
+      handleAxis(yAxis < -deadzone, jsnes.Controller.BUTTON_UP, 'up');
+      handleAxis(yAxis > deadzone, jsnes.Controller.BUTTON_DOWN, 'down');
+    }
+
+    function handleAxis(isPressed, nesBtn, key) {
+      if (isPressed && !gamepadStates[key]) {
+        nes.buttonDown(1, nesBtn);
+        gamepadStates[key] = true;
+      } else if (!isPressed && gamepadStates[key]) {
+        nes.buttonUp(1, nesBtn);
+        gamepadStates[key] = false;
+      }
+    }
+
+    function loop() {
+      updateGamepad(); // Poll inputs before rendering each frame
+      nes.frame();
+      requestAnimationFrame(loop);
+    }
+
+    fetch("game.nes")
+      .then(res => res.arrayBuffer())
+      .then(buf => {
+        let binary = "";
+        let bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        nes.loadROM(binary);
+        requestAnimationFrame(loop);
+      });
+  </script>
+</body>
+</html>
